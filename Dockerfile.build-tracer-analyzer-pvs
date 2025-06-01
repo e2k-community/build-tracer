@@ -1,0 +1,56 @@
+# --------------------------------------------------------------
+#
+# Copyright (c) 2025, LLC NIC CT
+# Copyright (c) 2025, Vladislav Shchapov <vladislav@shchapov.ru>
+#
+# This program is free software; you can redistribute it and/or
+# modify it under the terms of the GNU General Public License
+# as published by the Free Software Foundation; either version 2
+# of the License, or any later version.
+#
+# This program is distributed in the hope that it will be useful,
+# but WITHOUT ANY WARRANTY; without even the implied warranty of
+# MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the
+# GNU General Public License for more details.
+#
+# You should have received a copy of the GNU General Public License
+# along with this program; if not, see <https://www.gnu.org/licenses/>.
+#
+# --------------------------------------------------------------
+
+#
+# podman build --squash -t build-tracer-analyzer-pvs -f Dockerfile.build-tracer-analyzer-pvs
+#
+
+# Stage 1: Build Environment
+FROM centos:stream9 AS build-stage
+
+# Install build tools
+RUN    dnf config-manager --set-enabled crb
+RUN    dnf update -y                            \
+    && dnf install -y gcc tar gzip glibc-static
+
+# Copy source code
+ADD chexec.c /chexec.c
+
+# Build chexec utility (static)
+WORKDIR /
+RUN gcc -O3 -Wl,--gc-sections -static -o chexec chexec.c
+RUN strip --strip-all chexec
+
+
+# Stage 2: Runtime environment
+FROM centos:stream9-minimal AS final-stage
+
+# Install runtime dependencies
+RUN    microdnf update -y                       \
+    && microdnf install -y python3              \
+    && microdnf clean all                       \
+    && rm -rf /var/cache/dnf /var/cache/yum
+
+#  Copy application artifacts from the build stage
+COPY --from=build-stage /chexec                      /usr/bin/chexec
+COPY                    build-tracer-analyzer-pvs.py /usr/bin/build-tracer-analyzer-pvs.py
+
+# Define runtime configuration
+ENTRYPOINT ["/usr/bin/build-tracer-analyzer-pvs.py", "/data", "/data/root/pvs/result"]
